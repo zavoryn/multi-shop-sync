@@ -1,0 +1,35 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: multi-channel-product-sync
+  jackson:
+    default-property-inclusion: non_null
+
+# ============================================================
+# 多渠道配置
+# 使用时替换为各平台的真实凭证即可
+# ============================================================
+channel:
+  douyin:
+    enabled: false
+    app-key: "${DOUYIN_APP_KEY:}"
+    app-secret: "${DOUYIN_APP_SECRET:}"
+    access-token: "${DOUYIN_ACCESS_TOKEN:}"
+
+  xiaohongshu:
+    enabled: false
+    app-id: "${XHS_APP_ID:}"
+    app-secret: "${XHS_APP_SECRET:}"
+    access-token: "${XHS_ACCESS_TOKEN:}"
+
+  wechat:
+    enabled: false
+    app-id: "${WECHAT_APP_ID:}"
+    app-secret: "${WECHAT_APP_SECRET:}"
+    access-token: "${WECHAT_ACCESS_TOKEN:}"
+
+logging:
+  level:
+    com.github.multiplatform.sync: DEBUG
