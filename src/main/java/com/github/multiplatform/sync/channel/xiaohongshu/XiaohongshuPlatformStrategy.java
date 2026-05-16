@@ -8,6 +8,8 @@ import com.github.multiplatform.sync.common.dto.StandardSkuDTO;
 import com.github.multiplatform.sync.common.enums.ChannelEnum;
 import com.github.multiplatform.sync.common.enums.ProductStatusEnum;
 import com.github.multiplatform.sync.common.exception.ChannelException;
+import com.github.multiplatform.sync.common.model.PushResult;
+import com.github.multiplatform.sync.service.CategoryMappingService;
 import com.github.multiplatform.sync.strategy.AbstractPlatformStrategy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -35,6 +37,7 @@ import java.util.stream.Collectors;
 public class XiaohongshuPlatformStrategy extends AbstractPlatformStrategy {
 
     private final XiaohongshuAuthHelper authHelper;
+    private final CategoryMappingService categoryMappingService;
     private final WebClient.Builder webClientBuilder;
 
     @Override
@@ -43,7 +46,7 @@ public class XiaohongshuPlatformStrategy extends AbstractPlatformStrategy {
     }
 
     @Override
-    protected boolean doPushProduct(StandardProductDTO product) {
+    protected PushResult doPushProduct(StandardProductDTO product) {
         JSONObject businessData = buildCreateItemParam(product);
         String requestBody = authHelper.buildRequestBody("product.createItemAndSku", businessData.toJSONString());
 
@@ -60,14 +63,17 @@ public class XiaohongshuPlatformStrategy extends AbstractPlatformStrategy {
             throw new ChannelException("xiaohongshu", "商品推送失败: " + result.getString("error_msg"));
         }
 
-        log.info("小红书商品推送成功: outProductId={}", product.getOutProductId());
-        return true;
+        // 小红书 createItemAndSku 返回 data.itemId
+        JSONObject data = result.getJSONObject("data");
+        String itemId = data == null ? null : data.getString("itemId");
+        log.info("小红书商品推送成功: outProductId={}, itemId={}", product.getOutProductId(), itemId);
+        return PushResult.ok(itemId);
     }
 
     @Override
-    protected boolean doChangeStatus(String outProductId, ProductStatusEnum status) {
+    protected boolean doChangeStatus(String channelProductId, ProductStatusEnum status) {
         JSONObject businessData = new JSONObject();
-        businessData.put("skuId", outProductId);
+        businessData.put("itemId", channelProductId);
         businessData.put("available", status == ProductStatusEnum.ON_SHELF);
 
         String requestBody = authHelper.buildRequestBody("product.updateSkuAvailable", businessData.toJSONString());
@@ -85,9 +91,9 @@ public class XiaohongshuPlatformStrategy extends AbstractPlatformStrategy {
     }
 
     @Override
-    protected void doSyncPlatformStatus(String outProductId) {
+    protected ProductStatusEnum doSyncPlatformStatus(String channelProductId) {
         JSONObject businessData = new JSONObject();
-        businessData.put("itemId", outProductId);
+        businessData.put("itemId", channelProductId);
 
         String requestBody = authHelper.buildRequestBody("product.getItemInfo", businessData.toJSONString());
 
@@ -100,12 +106,11 @@ public class XiaohongshuPlatformStrategy extends AbstractPlatformStrategy {
                 .block();
 
         log.info("小红书主动查询商品状态返回: {}", response);
-        // TODO: 解析状态并更新本地数据库
+        return null; // Phase 5: itemStatus → 标准枚举（具体取值待官方文档核对）
     }
 
     /**
      * 解析小红书回调数据。
-     * 回调文档：https://open.xiaohongshu.com/document/api
      * msgTag: msg_item_buyable=上架/下架, msg_item_audit_reject=审核驳回, msg_item_create=创建
      */
     @Override
@@ -117,7 +122,6 @@ public class XiaohongshuPlatformStrategy extends AbstractPlatformStrategy {
 
         switch (msgTag.toString()) {
             case "msg_item_buyable":
-                // 需要进一步解析 data 中的 available 字段判断上架还是下架
                 return ProductStatusEnum.ON_SHELF;
             case "msg_item_audit_reject":
                 return ProductStatusEnum.AUDIT_REJECT;
@@ -129,23 +133,15 @@ public class XiaohongshuPlatformStrategy extends AbstractPlatformStrategy {
         }
     }
 
-    /**
-     * 将标准模型转换为小红书 createItemAndSku 参数格式。
-     *
-     * 关键映射：
-     * - 价格单位：标准模型和小红书都是「分」
-     * - 类目：需要通过 CategoryMapping 转换
-     * - 图片：小红书格式为 [{link: "url"}]
-     * - SKU 变体：attributes Map 转为 variants 数组
-     */
     private JSONObject buildCreateItemParam(StandardProductDTO product) {
+        String externalCategoryId = categoryMappingService.translateRequired(product.getCategoryId(), ChannelEnum.XIAOHONGSHU);
+
         JSONObject param = new JSONObject();
         param.put("name", product.getTitle());
-        param.put("categoryId", String.valueOf(product.getCategoryId()));
+        param.put("categoryId", externalCategoryId);
         param.put("shippingTemplateId", String.valueOf(product.getFreightTemplateId()));
         param.put("description", product.getDescription());
 
-        // 图片格式转换
         JSONArray images = new JSONArray();
         for (String imgUrl : product.getMainImages()) {
             JSONObject img = new JSONObject();
@@ -154,7 +150,6 @@ public class XiaohongshuPlatformStrategy extends AbstractPlatformStrategy {
         }
         param.put("images", images);
 
-        // SKU 列表转换
         JSONArray skuList = new JSONArray();
         for (StandardSkuDTO sku : product.getSkus()) {
             JSONObject skuJson = new JSONObject();
@@ -163,7 +158,6 @@ public class XiaohongshuPlatformStrategy extends AbstractPlatformStrategy {
             skuJson.put("stock", sku.getStock());
             skuJson.put("erpCode", sku.getSkuCode());
 
-            // 变体转换
             if (sku.getAttributes() != null) {
                 List<Map<String, String>> variants = sku.getAttributes().entrySet().stream()
                         .map(e -> {
@@ -175,7 +169,6 @@ public class XiaohongshuPlatformStrategy extends AbstractPlatformStrategy {
                         .collect(Collectors.toList());
                 skuJson.put("variants", variants);
             }
-
             skuList.add(skuJson);
         }
         param.put("createSkuList", skuList);

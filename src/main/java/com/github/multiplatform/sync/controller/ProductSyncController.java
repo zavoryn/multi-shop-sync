@@ -4,6 +4,7 @@ import com.github.multiplatform.sync.common.dto.StandardProductDTO;
 import com.github.multiplatform.sync.common.enums.ChannelEnum;
 import com.github.multiplatform.sync.common.enums.ProductStatusEnum;
 import com.github.multiplatform.sync.common.model.ApiResponse;
+import com.github.multiplatform.sync.common.model.PushResult;
 import com.github.multiplatform.sync.service.ProductSyncService;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
@@ -28,9 +29,9 @@ public class ProductSyncController {
      * Body: { "channelCode": "DOUYIN", "product": { ... } }
      */
     @PostMapping("/push")
-    public ApiResponse<Boolean> pushProduct(@Valid @RequestBody PushRequest request) {
+    public ApiResponse<PushResult> pushProduct(@Valid @RequestBody PushRequest request) {
         ChannelEnum channel = ChannelEnum.fromCode(request.getChannelCode());
-        boolean result = productSyncService.pushProduct(channel, request.getProduct());
+        PushResult result = productSyncService.pushProduct(channel, request.getProduct());
         return ApiResponse.success(result);
     }
 

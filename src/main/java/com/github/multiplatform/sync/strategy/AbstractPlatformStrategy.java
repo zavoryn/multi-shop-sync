@@ -1,10 +1,11 @@
 package com.github.multiplatform.sync.strategy;
 
 import com.github.multiplatform.sync.common.dto.StandardProductDTO;
-import com.github.multiplatform.sync.common.enums.ChannelEnum;
 import com.github.multiplatform.sync.common.enums.ProductStatusEnum;
 import com.github.multiplatform.sync.common.exception.ChannelException;
+import com.github.multiplatform.sync.common.model.PushResult;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.retry.annotation.Backoff;
 import org.springframework.retry.annotation.Retryable;
 
 import java.util.Map;
@@ -20,15 +21,16 @@ public abstract class AbstractPlatformStrategy implements IPlatformProductStrate
     // ==================== 模板方法 ====================
 
     @Override
-    @Retryable(value = {ChannelException.class}, maxAttempts = 3, backoff = @org.springframework.retry.annotation.Backoff(delay = 1000))
-    public boolean pushProduct(StandardProductDTO product) {
+    @Retryable(value = {ChannelException.class}, maxAttempts = 3, backoff = @Backoff(delay = 1000))
+    public PushResult pushProduct(StandardProductDTO product) {
         String channel = getChannel().getCode();
         log.info("[{}] 开始推送商品: outProductId={}, title={}", channel, product.getOutProductId(), product.getTitle());
 
         try {
             validateProduct(product);
-            boolean result = doPushProduct(product);
-            log.info("[{}] 推送商品完成: outProductId={}, result={}", channel, product.getOutProductId(), result);
+            PushResult result = doPushProduct(product);
+            log.info("[{}] 推送商品完成: outProductId={}, channelProductId={}", channel,
+                    product.getOutProductId(), result == null ? null : result.getChannelProductId());
             return result;
         } catch (ChannelException e) {
             throw e;
@@ -39,29 +41,29 @@ public abstract class AbstractPlatformStrategy implements IPlatformProductStrate
     }
 
     @Override
-    public boolean changeStatus(String outProductId, ProductStatusEnum status) {
+    public boolean changeStatus(String channelProductId, ProductStatusEnum status) {
         String channel = getChannel().getCode();
-        log.info("[{}] 变更商品状态: outProductId={}, targetStatus={}", channel, outProductId, status);
+        log.info("[{}] 变更商品状态: channelProductId={}, targetStatus={}", channel, channelProductId, status);
 
         try {
-            boolean result = doChangeStatus(outProductId, status);
-            log.info("[{}] 状态变更完成: outProductId={}, result={}", channel, outProductId, result);
+            boolean result = doChangeStatus(channelProductId, status);
+            log.info("[{}] 状态变更完成: channelProductId={}, result={}", channel, channelProductId, result);
             return result;
         } catch (Exception e) {
-            log.error("[{}] 状态变更异常: outProductId={}", channel, outProductId, e);
+            log.error("[{}] 状态变更异常: channelProductId={}", channel, channelProductId, e);
             throw new ChannelException(channel, "状态变更失败: " + e.getMessage(), e);
         }
     }
 
     @Override
-    public void syncPlatformStatus(String outProductId) {
+    public ProductStatusEnum syncPlatformStatus(String channelProductId) {
         String channel = getChannel().getCode();
-        log.info("[{}] 主动同步状态: outProductId={}", channel, outProductId);
+        log.info("[{}] 主动同步状态: channelProductId={}", channel, channelProductId);
 
         try {
-            doSyncPlatformStatus(outProductId);
+            return doSyncPlatformStatus(channelProductId);
         } catch (Exception e) {
-            log.error("[{}] 同步状态异常: outProductId={}", channel, outProductId, e);
+            log.error("[{}] 同步状态异常: channelProductId={}", channel, channelProductId, e);
             throw new ChannelException(channel, "同步状态失败: " + e.getMessage(), e);
         }
     }
@@ -94,11 +96,12 @@ public abstract class AbstractPlatformStrategy implements IPlatformProductStrate
 
     // ==================== 子类实现的抽象方法 ====================
 
-    protected abstract boolean doPushProduct(StandardProductDTO product);
+    protected abstract PushResult doPushProduct(StandardProductDTO product);
 
-    protected abstract boolean doChangeStatus(String outProductId, ProductStatusEnum status);
+    protected abstract boolean doChangeStatus(String channelProductId, ProductStatusEnum status);
 
-    protected abstract void doSyncPlatformStatus(String outProductId);
+    /** @return 平台侧解析后的标准状态；拿不到返回 null（由 service 决定是否记录） */
+    protected abstract ProductStatusEnum doSyncPlatformStatus(String channelProductId);
 
     protected abstract ProductStatusEnum doParseCallback(Map<String, Object> callbackData);
 }

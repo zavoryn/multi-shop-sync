@@ -8,25 +8,20 @@ import com.github.multiplatform.sync.common.dto.StandardSkuDTO;
 import com.github.multiplatform.sync.common.enums.ChannelEnum;
 import com.github.multiplatform.sync.common.enums.ProductStatusEnum;
 import com.github.multiplatform.sync.common.exception.ChannelException;
+import com.github.multiplatform.sync.common.model.PushResult;
+import com.github.multiplatform.sync.service.CategoryMappingService;
 import com.github.multiplatform.sync.strategy.AbstractPlatformStrategy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 
-import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 /**
  * 微信小店（视频号小店）策略实现。
  *
  * API 文档：https://developers.weixin.qq.com/doc/store/shop/API/channels-shop-product/shop/api_addproduct.html
- *
- * 核心流程：
- * 1. 将 StandardProductDTO 转换为微信 channels/ec/product/add 格式
- * 2. 通过 access_token 调用微信 API
- * 3. 解析商品审核回调事件
  *
  * 微信特点：
  * - 图片必须使用微信上传接口返回的 URL（mmecimage.cn/p/）
@@ -39,6 +34,7 @@ import java.util.stream.Collectors;
 public class WechatPlatformStrategy extends AbstractPlatformStrategy {
 
     private final WechatAuthHelper authHelper;
+    private final CategoryMappingService categoryMappingService;
     private final WebClient.Builder webClientBuilder;
 
     private static final String BASE_URL = "https://api.weixin.qq.com";
@@ -49,7 +45,7 @@ public class WechatPlatformStrategy extends AbstractPlatformStrategy {
     }
 
     @Override
-    protected boolean doPushProduct(StandardProductDTO product) {
+    protected PushResult doPushProduct(StandardProductDTO product) {
         JSONObject param = buildAddProductParam(product);
         String url = BASE_URL + "/channels/ec/product/add?access_token=" + authHelper.getAccessToken();
 
@@ -67,20 +63,20 @@ public class WechatPlatformStrategy extends AbstractPlatformStrategy {
             throw new ChannelException("wechat", "商品推送失败[" + errcode + "]: " + result.getString("errmsg"));
         }
 
-        log.info("微信商品推送成功: outProductId={}, productId={}",
-                product.getOutProductId(),
-                result.getJSONObject("data") != null ? result.getJSONObject("data").getLong("product_id") : null);
-        return true;
+        JSONObject data = result.getJSONObject("data");
+        String productId = data == null ? null : data.getString("product_id");
+        log.info("微信商品推送成功: outProductId={}, productId={}", product.getOutProductId(), productId);
+        return PushResult.ok(productId);
     }
 
     @Override
-    protected boolean doChangeStatus(String outProductId, ProductStatusEnum status) {
+    protected boolean doChangeStatus(String channelProductId, ProductStatusEnum status) {
         String path = (status == ProductStatusEnum.ON_SHELF)
                 ? "/channels/ec/product/listing"
                 : "/channels/ec/product/delisting";
 
         JSONObject param = new JSONObject();
-        param.put("product_id", Long.parseLong(outProductId));
+        param.put("product_id", Long.parseLong(channelProductId));
 
         String url = BASE_URL + path + "?access_token=" + authHelper.getAccessToken();
 
@@ -96,9 +92,9 @@ public class WechatPlatformStrategy extends AbstractPlatformStrategy {
     }
 
     @Override
-    protected void doSyncPlatformStatus(String outProductId) {
+    protected ProductStatusEnum doSyncPlatformStatus(String channelProductId) {
         JSONObject param = new JSONObject();
-        param.put("product_id", Long.parseLong(outProductId));
+        param.put("product_id", Long.parseLong(channelProductId));
 
         String url = BASE_URL + "/channels/ec/product/get?access_token=" + authHelper.getAccessToken();
 
@@ -110,12 +106,11 @@ public class WechatPlatformStrategy extends AbstractPlatformStrategy {
                 .block();
 
         log.info("微信主动查询商品状态返回: {}", response);
-        // TODO: 解析状态并更新本地数据库
+        return null; // Phase 5: status → 标准枚举（具体取值待官方文档核对）
     }
 
     /**
      * 解析微信回调数据。
-     * 回调文档：https://developers.weixin.qq.com/doc/store/shop/API/channels-shop-product/shop/callback_audit.html
      * 事件类型：商品审核（通过/驳回）、商品上下架、商品更新
      */
     @Override
@@ -127,42 +122,30 @@ public class WechatPlatformStrategy extends AbstractPlatformStrategy {
 
         String event = eventType.toString();
         switch (event) {
-            case "channels_ec_product_audit_approve":
-                return ProductStatusEnum.ON_SHELF;
-            case "channels_ec_product_audit_reject":
-                return ProductStatusEnum.AUDIT_REJECT;
-            case "channels_ec_product_delisting":
-                return ProductStatusEnum.OFF_SHELF;
+            case "channels_ec_product_audit_approve": return ProductStatusEnum.ON_SHELF;
+            case "channels_ec_product_audit_reject":  return ProductStatusEnum.AUDIT_REJECT;
+            case "channels_ec_product_delisting":     return ProductStatusEnum.OFF_SHELF;
             default:
                 log.warn("微信未处理的回调事件: event={}", event);
                 return null;
         }
     }
 
-    /**
-     * 将标准模型转换为微信 channels/ec/product/add 参数格式。
-     *
-     * 关键映射：
-     * - 价格单位：标准模型和微信都是「分」
-     * - 类目：cats_v2 格式 [{category_id: xxx}]
-     * - 图片：微信要求已上传的 mmecimage.cn/p/ URL
-     * - SKU 属性：sku_attrs 格式 {key: value}
-     */
     private JSONObject buildAddProductParam(StandardProductDTO product) {
+        String externalCategoryId = categoryMappingService.translateRequired(product.getCategoryId(), ChannelEnum.WECHAT);
+
         JSONObject param = new JSONObject();
         param.put("title", product.getTitle());
         param.put("out_product_id", product.getOutProductId());
         param.put("head_imgs", new JSONArray(product.getMainImages()));
-        param.put("deliver_method", 0); // 0=快递
+        param.put("deliver_method", 0);
 
-        // 类目
         JSONArray cats = new JSONArray();
         JSONObject cat = new JSONObject();
-        cat.put("category_id", product.getCategoryId());
+        cat.put("category_id", externalCategoryId);
         cats.add(cat);
         param.put("cats_v2", cats);
 
-        // SKU 列表
         JSONArray skuArray = new JSONArray();
         for (StandardSkuDTO sku : product.getSkus()) {
             JSONObject skuJson = new JSONObject();
@@ -175,7 +158,6 @@ public class WechatPlatformStrategy extends AbstractPlatformStrategy {
                 skuJson.put("thumb_img", sku.getImageUrl());
             }
 
-            // 属性转换
             if (sku.getAttributes() != null) {
                 JSONObject attrs = new JSONObject();
                 for (Map.Entry<String, String> attr : sku.getAttributes().entrySet()) {
@@ -183,12 +165,9 @@ public class WechatPlatformStrategy extends AbstractPlatformStrategy {
                 }
                 skuJson.put("sku_attrs", attrs);
             }
-
             skuArray.add(skuJson);
         }
         param.put("skus", skuArray);
-
-        // 创建后自动提交上架审核
         param.put("listing", 1);
 
         return param;
