@@ -1,5 +1,8 @@
 package com.github.multiplatform.sync.channel.xiaohongshu;
 
+import com.github.multiplatform.sync.common.auth.AccessTokenManager;
+import com.github.multiplatform.sync.common.enums.ChannelEnum;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.springframework.beans.factory.annotation.Value;
@@ -7,11 +10,9 @@ import org.springframework.stereotype.Component;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
-import java.util.stream.Collectors;
 
 /**
  * 小红书鉴权辅助类。
- * 负责签名计算和 Token 管理。
  *
  * 签名算法：MD5
  * 公式：MD5(method + "?" + sortedSystemParams + appSecret)
@@ -21,6 +22,7 @@ import java.util.stream.Collectors;
  */
 @Slf4j
 @Component
+@RequiredArgsConstructor
 public class XiaohongshuAuthHelper {
 
     @Value("${channel.xiaohongshu.app-id:}")
@@ -29,21 +31,10 @@ public class XiaohongshuAuthHelper {
     @Value("${channel.xiaohongshu.app-secret:}")
     private String appSecret;
 
-    @Value("${channel.xiaohongshu.access-token:}")
-    private String accessToken;
-
     private static final String GATEWAY_URL = "https://ark.xiaohongshu.com/ark/open_api/v3/common_controller";
 
-    /**
-     * 计算请求签名（MD5）
-     *
-     * 步骤：
-     * 1. 收集系统参数：appId, timestamp, version
-     * 2. 按字母序排序
-     * 3. 用 & 连接
-     * 4. 前缀 method + "?"，后缀 appSecret
-     * 5. MD5 哈希
-     */
+    private final AccessTokenManager tokenManager;
+
     public String calcSign(String method, String timestamp) {
         String[] params = {
                 "appId=" + appId,
@@ -56,10 +47,18 @@ public class XiaohongshuAuthHelper {
         return DigestUtils.md5Hex(signSource.getBytes(StandardCharsets.UTF_8));
     }
 
-    /** 构建完整的请求 JSON 体（小红书所有参数都在 body 中） */
+    /**
+     * 构建完整的请求 JSON 体（小红书所有参数都在 body 中）。
+     *
+     * 重要：oauth.refreshToken 接口本身不应携带 accessToken（此时 token 还没拿到），
+     * 而其他接口必须带。两种场景使用同一方法是因为 RefreshStrategy 在 token 缺失时调用，
+     * 此时 tokenManager.getToken() 会触发循环刷新 → 死锁。
+     * 解决：oauth.* 类接口直接传空 accessToken。
+     */
     public String buildRequestBody(String method, String businessParams) {
         String timestamp = String.valueOf(System.currentTimeMillis() / 1000);
         String sign = calcSign(method, timestamp);
+        String accessToken = method.startsWith("oauth.") ? "" : tokenManager.getToken(ChannelEnum.XIAOHONGSHU);
 
         return "{\"method\":\"" + method + "\""
                 + ",\"appId\":\"" + appId + "\""
@@ -74,5 +73,8 @@ public class XiaohongshuAuthHelper {
     public String getGatewayUrl() { return GATEWAY_URL; }
     public String getAppId() { return appId; }
     public String getAppSecret() { return appSecret; }
-    public String getAccessToken() { return accessToken; }
+
+    public String getAccessToken() {
+        return tokenManager.getToken(ChannelEnum.XIAOHONGSHU);
+    }
 }
