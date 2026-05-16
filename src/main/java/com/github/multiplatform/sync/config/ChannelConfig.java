@@ -7,6 +7,9 @@ import org.springframework.context.annotation.Configuration;
 /**
  * 多渠道配置。
  * 从 application.yml 中读取各平台的凭证信息。
+ *
+ * 注意：accessToken 不再在此配置，由 AccessTokenManager 通过 refreshToken
+ * 动态获取并缓存（Phase 4）。
  */
 @Data
 @Configuration
@@ -22,7 +25,7 @@ public class ChannelConfig {
         private boolean enabled = false;
         private String appKey;
         private String appSecret;
-        private String accessToken;
+        private String refreshToken;
     }
 
     @Data
@@ -30,7 +33,7 @@ public class ChannelConfig {
         private boolean enabled = false;
         private String appId;
         private String appSecret;
-        private String accessToken;
+        private String refreshToken;
     }
 
     @Data
@@ -38,6 +41,9 @@ public class ChannelConfig {
         private boolean enabled = false;
         private String appId;
         private String appSecret;
-        private String accessToken;
+        /** 微信回调验签 token */
+        private String callbackToken;
+        /** 微信回调消息体 AES-CBC 解密密钥（43 字符） */
+        private String encodingAesKey;
     }
 }

@@ -4,32 +4,46 @@ server:
 spring:
   application:
     name: multi-channel-product-sync
+  profiles:
+    active: dev
   jackson:
     default-property-inclusion: non_null
 
 # ============================================================
-# 多渠道配置
-# 使用时替换为各平台的真实凭证即可
+# 多渠道配置占位（敏感字段必须通过环境变量或 profile 覆盖注入）
 # ============================================================
 channel:
   douyin:
     enabled: false
     app-key: "${DOUYIN_APP_KEY:}"
     app-secret: "${DOUYIN_APP_SECRET:}"
-    access-token: "${DOUYIN_ACCESS_TOKEN:}"
+    refresh-token: "${DOUYIN_REFRESH_TOKEN:}"
 
   xiaohongshu:
     enabled: false
     app-id: "${XHS_APP_ID:}"
     app-secret: "${XHS_APP_SECRET:}"
-    access-token: "${XHS_ACCESS_TOKEN:}"
+    refresh-token: "${XHS_REFRESH_TOKEN:}"
 
   wechat:
     enabled: false
     app-id: "${WECHAT_APP_ID:}"
     app-secret: "${WECHAT_APP_SECRET:}"
-    access-token: "${WECHAT_ACCESS_TOKEN:}"
+    # 微信小店回调验签所需
+    callback-token: "${WECHAT_CALLBACK_TOKEN:}"
+    encoding-aes-key: "${WECHAT_ENCODING_AES_KEY:}"
+
+# MyBatis-Plus 全局
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
+  global-config:
+    db-config:
+      id-type: auto
+      logic-delete-field: null
 
 logging:
   level:
     com.github.multiplatform.sync: DEBUG
+    com.baomidou.mybatisplus: WARN
