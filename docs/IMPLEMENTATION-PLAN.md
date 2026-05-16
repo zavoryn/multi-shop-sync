@@ -292,7 +292,7 @@ src/test/java/com/github/multiplatform/sync/
 | Phase 0 - 基础设施 | ✅ done | 2026-05-16 |
 | Phase 1 - 修路由冲突 | ✅ done | 2026-05-16 |
 | Phase 2 - 持久层 | ✅ done | 2026-05-16 |
-| Phase 3 - 状态机+幂等 | ⏳ pending | |
+| Phase 3 - 状态机+幂等 | ✅ done | 2026-05-16 |
 | Phase 4 - Token 管理 | ⏳ pending | |
 | Phase 5 - syncStatus 完善 | ⏳ pending | |
 | Phase 6 - 微信验签 | ⏳ pending | |

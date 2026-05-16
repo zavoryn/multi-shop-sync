@@ -5,6 +5,7 @@ import com.github.multiplatform.sync.common.dao.entity.ChannelProductMapping;
 import com.github.multiplatform.sync.common.dao.mapper.ChannelProductMappingMapper;
 import com.github.multiplatform.sync.common.enums.ChannelEnum;
 import com.github.multiplatform.sync.common.enums.ProductStatusEnum;
+import com.github.multiplatform.sync.common.statemachine.ProductStatusMachine;
 import com.github.multiplatform.sync.service.ChannelProductMappingService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -58,11 +59,24 @@ public class ChannelProductMappingServiceImpl implements ChannelProductMappingSe
             return;
         }
         ChannelProductMapping m = existing.get();
+
+        // 状态机校验：非法转移直接抛出，由上层决定是异常返回还是 markFailed
+        ProductStatusEnum from = codeToEnum(m.getLocalStatus());
+        ProductStatusMachine.assertCanTransition(from, status);
+
         m.setLocalStatus(status.getCode());
         if (externalStatus != null) m.setExternalStatus(externalStatus);
         if (rejectReason != null) m.setRejectReason(rejectReason);
         m.setLastSyncTime(LocalDateTime.now());
         mapper.updateById(m);
+    }
+
+    private ProductStatusEnum codeToEnum(Integer code) {
+        if (code == null) return null;
+        for (ProductStatusEnum e : ProductStatusEnum.values()) {
+            if (e.getCode() == code) return e;
+        }
+        return null;
     }
 
     @Override
