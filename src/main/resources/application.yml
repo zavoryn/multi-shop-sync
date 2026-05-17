@@ -33,6 +33,26 @@ channel:
     callback-token: "${WECHAT_CALLBACK_TOKEN:}"
     encoding-aes-key: "${WECHAT_ENCODING_AES_KEY:}"
 
+# Resilience4j 限流（per-channel 实例化）
+# 抖音:    https://op.jinritemai.com/docs/guide-docs/14/2270  限频 60/min
+# 小红书:  默认保守值 600/min，具体以官方文档为准
+# 微信:    https://developers.weixin.qq.com/doc/   50/s（部分接口）
+resilience4j:
+  ratelimiter:
+    instances:
+      douyin:
+        limit-for-period: 60
+        limit-refresh-period: 60s
+        timeout-duration: 5s
+      xiaohongshu:
+        limit-for-period: 600
+        limit-refresh-period: 60s
+        timeout-duration: 5s
+      wechat:
+        limit-for-period: 50
+        limit-refresh-period: 1s
+        timeout-duration: 5s
+
 # MyBatis-Plus 全局
 mybatis-plus:
   configuration:
