@@ -94,7 +94,6 @@ public class DouyinPlatformStrategy extends AbstractPlatformStrategy {
 
     @Override
     protected ProductStatusEnum doSyncPlatformStatus(String channelProductId) {
-        // Phase 5 补完返回值解析；Phase 2 先打通调用链
         JSONObject paramJson = new JSONObject();
         paramJson.put("product_id", Long.parseLong(channelProductId));
 
@@ -110,8 +109,33 @@ public class DouyinPlatformStrategy extends AbstractPlatformStrategy {
                 .bodyToMono(String.class)
                 .block();
 
-        log.info("抖音主动查询商品状态返回: {}", response);
-        return null;  // Phase 5: 解析 check_status → 标准枚举
+        JSONObject result = JSON.parseObject(response);
+        if (result == null || result.getIntValue("code") != 10000) {
+            log.warn("抖音查询商品状态失败: response={}", response);
+            return null;
+        }
+        JSONObject data = result.getJSONObject("data");
+        if (data == null || !data.containsKey("status")) {
+            log.warn("抖音查询返回缺少 status 字段: {}", response);
+            return null;
+        }
+        return mapStatus(data.getIntValue("status"));
+    }
+
+    /**
+     * 抖音 product.detail.status → 标准状态。
+     * 官方状态机：https://op.jinritemai.com/docs/question-docs/92/2070
+     * 0=在线 / 1=下线 / 2=删除
+     */
+    static ProductStatusEnum mapStatus(int status) {
+        switch (status) {
+            case 0:  return ProductStatusEnum.ON_SHELF;
+            case 1:  return ProductStatusEnum.OFF_SHELF;
+            case 2:  return ProductStatusEnum.OFF_SHELF;
+            default:
+                log.warn("抖音未知 status: {}", status);
+                return null;
+        }
     }
 
     /**

@@ -105,8 +105,60 @@ public class WechatPlatformStrategy extends AbstractPlatformStrategy {
                 .bodyToMono(String.class)
                 .block();
 
-        log.info("微信主动查询商品状态返回: {}", response);
-        return null; // Phase 5: status → 标准枚举（具体取值待官方文档核对）
+        JSONObject result = JSON.parseObject(response);
+        if (result == null || result.getIntValue("errcode") != 0) {
+            log.warn("微信查询商品状态失败: response={}", response);
+            return null;
+        }
+        // 返回结构：{ errcode, errmsg, product: { status, ... } }
+        JSONObject product = result.getJSONObject("product");
+        if (product == null || !product.containsKey("status")) {
+            log.warn("微信查询返回缺少 product.status: {}", response);
+            return null;
+        }
+        return mapStatus(product.getIntValue("status"));
+    }
+
+    /**
+     * 微信小店 res.product.status → 标准状态。
+     * 完整映射见 docs/research/platform-status-mapping.md（用户提供的官方枚举表）。
+     */
+    static ProductStatusEnum mapStatus(int status) {
+        switch (status) {
+            case 0:  // 初始值
+            case 1:  // 编辑中
+                return ProductStatusEnum.DRAFT;
+            case 2:  // 审核中
+            case 4:  // 审核成功（未上架）
+            case 7:  // 异步提交上传中
+            case 70: // 异步提审中
+                return ProductStatusEnum.WAIT_PLATFORM_AUDIT;
+            case 5:  // 上架
+                return ProductStatusEnum.ON_SHELF;
+            case 3:  // 审核失败
+            case 8:  // 异步提交上传失败
+            case 20: // 商品被封禁
+            case 71: // 质检不通过
+            case 72: // 异步提审失败：当日 quota 不足
+            case 73: // 异步提审失败：限频触发
+                return ProductStatusEnum.AUDIT_REJECT;
+            case 6:  // 回收站
+            case 9:  // 彻底删除
+            case 10: // 冻结
+            case 11: // 自主下架
+            case 12: // 售罄下架
+            case 13: // 违规下架
+            case 14: // 保证金不足下架
+            case 15: // 品牌过期下架
+            case 21: // SKU 逻辑删除
+                return ProductStatusEnum.OFF_SHELF;
+            case 30: // 商品不存在
+                log.warn("微信查询返回 status=30（商品不存在），上层应清理 mapping");
+                return null;
+            default:
+                log.warn("微信未知 status: {}", status);
+                return null;
+        }
     }
 
     /**

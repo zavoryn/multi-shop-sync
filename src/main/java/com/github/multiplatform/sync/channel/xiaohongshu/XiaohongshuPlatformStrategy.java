@@ -92,10 +92,13 @@ public class XiaohongshuPlatformStrategy extends AbstractPlatformStrategy {
 
     @Override
     protected ProductStatusEnum doSyncPlatformStatus(String channelProductId) {
+        // 用 product.getDetailItemList 按 id 单查（原 product.getItemInfo 在官方 API 索引中不存在）
         JSONObject businessData = new JSONObject();
-        businessData.put("itemId", channelProductId);
+        businessData.put("id", channelProductId);
+        businessData.put("pageNo", 1);
+        businessData.put("pageSize", 1);
 
-        String requestBody = authHelper.buildRequestBody("product.getItemInfo", businessData.toJSONString());
+        String requestBody = authHelper.buildRequestBody("product.getDetailItemList", businessData.toJSONString());
 
         String response = webClientBuilder.build().post()
                 .uri(authHelper.getGatewayUrl())
@@ -105,8 +108,36 @@ public class XiaohongshuPlatformStrategy extends AbstractPlatformStrategy {
                 .bodyToMono(String.class)
                 .block();
 
-        log.info("小红书主动查询商品状态返回: {}", response);
-        return null; // Phase 5: itemStatus → 标准枚举（具体取值待官方文档核对）
+        JSONObject result = JSON.parseObject(response);
+        if (result == null || !result.getBooleanValue("success")) {
+            log.warn("小红书查询商品状态失败: response={}", response);
+            return null;
+        }
+        JSONArray dataList = result.getJSONArray("data");
+        if (dataList == null || dataList.isEmpty()) {
+            log.warn("小红书查询返回空 data: id={}", channelProductId);
+            return null;
+        }
+        JSONObject itemData = dataList.getJSONObject(0).getJSONObject("itemData");
+        if (itemData == null) {
+            log.warn("小红书查询返回缺少 itemData: id={}", channelProductId);
+            return null;
+        }
+        // freeze 不在标准 getDetailItemList 响应中暴露，但可能在某些版本扩展返回；保守按 false 处理
+        boolean buyable = itemData.getBooleanValue("buyable");
+        boolean freeze = itemData.getBooleanValue("freeze");
+        return mapStatus(buyable, freeze);
+    }
+
+    /**
+     * 小红书 buyable + freeze → 标准状态。
+     * 详见 docs/research/platform-status-mapping.md
+     *
+     * 注：审核中 / 驳回 通过回调 msgTag 异步感知，主动查询接口拿不到。
+     */
+    static ProductStatusEnum mapStatus(boolean buyable, boolean freeze) {
+        if (freeze) return ProductStatusEnum.OFF_SHELF;
+        return buyable ? ProductStatusEnum.ON_SHELF : ProductStatusEnum.OFF_SHELF;
     }
 
     /**
