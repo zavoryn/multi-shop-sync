@@ -104,6 +104,47 @@ public final class WechatCryptoUtil {
         }
     }
 
+    /**
+     * 反向操作（仅供单元测试使用，验证 decrypt 行为）。
+     * 生产代码不应该用本方法 —— 微信回调是平台主动加密发给我们，不应反向构造。
+     */
+    static String encrypt(String encodingAesKey, String plaintext, String appId, String random16) {
+        try {
+            byte[] aesKey = Base64.decodeBase64(encodingAesKey + "=");
+            byte[] iv = Arrays.copyOfRange(aesKey, 0, 16);
+            byte[] msgBytes = plaintext.getBytes(StandardCharsets.UTF_8);
+            byte[] appIdBytes = appId.getBytes(StandardCharsets.UTF_8);
+            byte[] random = random16.getBytes(StandardCharsets.UTF_8);
+            byte[] lenBytes = new byte[]{
+                    (byte) (msgBytes.length >> 24),
+                    (byte) (msgBytes.length >> 16),
+                    (byte) (msgBytes.length >> 8),
+                    (byte)  msgBytes.length};
+
+            int totalLen = random.length + lenBytes.length + msgBytes.length + appIdBytes.length;
+            byte[] assembled = new byte[totalLen];
+            int p = 0;
+            System.arraycopy(random, 0, assembled, p, random.length);  p += random.length;
+            System.arraycopy(lenBytes, 0, assembled, p, lenBytes.length); p += lenBytes.length;
+            System.arraycopy(msgBytes, 0, assembled, p, msgBytes.length); p += msgBytes.length;
+            System.arraycopy(appIdBytes, 0, assembled, p, appIdBytes.length);
+
+            // PKCS7 pad
+            int blockSize = 32;
+            int pad = blockSize - (totalLen % blockSize);
+            byte[] padded = new byte[totalLen + pad];
+            System.arraycopy(assembled, 0, padded, 0, totalLen);
+            for (int i = totalLen; i < padded.length; i++) padded[i] = (byte) pad;
+
+            Cipher cipher = Cipher.getInstance("AES/CBC/NoPadding");
+            cipher.init(Cipher.ENCRYPT_MODE, new SecretKeySpec(aesKey, "AES"), new IvParameterSpec(iv));
+            byte[] cipherBytes = cipher.doFinal(padded);
+            return Base64.encodeBase64String(cipherBytes);
+        } catch (Exception e) {
+            throw new CryptoException("encrypt failed: " + e.getMessage(), e);
+        }
+    }
+
     /** PKCS7 反填充：明文末尾 N 字节的值都为 N，去掉即可 */
     static byte[] pkcs7Unpad(byte[] padded) {
         if (padded == null || padded.length == 0) return padded;

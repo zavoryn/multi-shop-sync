@@ -297,7 +297,7 @@ src/test/java/com/github/multiplatform/sync/
 | Phase 5 - syncStatus 完善 | ✅ done | 2026-05-17 |
 | Phase 6 - 微信验签 | ✅ done | 2026-05-17 |
 | Phase 7 - 重试/限流/异常 | ✅ done | 2026-05-17 |
-| Phase 8 - 单元测试 | ⏳ pending | |
+| Phase 8 - 单元测试 | ✅ done | 2026-05-17 |
 | Phase 9 - 配置/文档 | ⏳ pending | |
 
 ---

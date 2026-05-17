@@ -55,6 +55,8 @@ public class CaffeineTokenManager implements AccessTokenManager {
         if (channel == ChannelEnum.LOCAL) {
             return "";
         }
+        // 强制刷新必须先 invalidate，否则 doRefresh 内的 double-check 会命中缓存直接返回旧 token
+        cache.invalidate(channel);
         return doRefresh(channel, "forced").getToken();
     }
 
