@@ -1,5 +1,6 @@
 package com.github.multiplatform.sync.common.enums;
 
+import com.github.multiplatform.sync.common.exception.ChannelException;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 
@@ -15,12 +16,19 @@ public enum ChannelEnum {
     private final String code;
     private final String name;
 
+    /**
+     * 字符串 code → 枚举。
+     * 抛 {@link ChannelException}（而非 IllegalArgumentException），由
+     * GlobalExceptionHandler 统一映射为 400 + 友好消息。
+     */
     public static ChannelEnum fromCode(String code) {
-        for (ChannelEnum channel : values()) {
-            if (channel.code.equalsIgnoreCase(code)) {
-                return channel;
+        if (code != null) {
+            for (ChannelEnum channel : values()) {
+                if (channel.code.equalsIgnoreCase(code)) {
+                    return channel;
+                }
             }
         }
-        throw new IllegalArgumentException("未知渠道编码: " + code);
+        throw new ChannelException(code == null ? "null" : code, "未知渠道编码: " + code);
     }
 }
